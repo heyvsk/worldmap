@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>EU vs NATO Map (Final UI)</title>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+
+<style>
+body {
+    margin: 0;
+    background: #0f172a;
+    font-family: Arial, sans-serif;
+}
+
+svg {
+    width: 100vw;
+    height: 100vh;
+    background: #020617;
+}
+
+.country {
+    stroke: #1e293b;
+    stroke-width: 0.5;
+}
+
+.tooltip {
+    position: absolute;
+    background: #111827;
+    color: white;
+    padding: 5px 8px;
+    border-radius: 5px;
+    font-size: 13px;
+    pointer-events: none;
+}
+
+/* Checkbox legend */
+.legend {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    background: white;
+    color: black;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    font-size: 11px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+
+.legend label {
+    display: block;
+    margin: 3px 0;
+}
+
+/* ✅ Color legend */
+.color-legend {
+    position: absolute;
+    top: 85px;
+    left: 15px;
+    background: white;
+    color: black;
+    padding: 6px;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    font-size: 11px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+
+.color-legend div {
+    margin: 3px 0;
+}
+
+.color-box {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    margin-right: 5px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="tooltip" class="tooltip" style="opacity:0;"></div>
+
+<!-- Checkbox legend -->
+<div class="legend">
+    <label><input type="checkbox" id="euCheck" checked> EU</label>
+    <label><input type="checkbox" id="natoCheck" checked> NATO</label>
+</div>
+
+<!-- ✅ Color legend added -->
+<div class="color-legend">
+    <div><span class="color-box" style="background:#3b82f6"></span>EU only</div>
+    <div><span class="color-box" style="background:#facc15"></span>EU + NATO</div>
+    <div><span class="color-box" style="background:#ef4444"></span>NATO only</div>
+</div>
+
+<script>
+
+// NATO ISO
+const NATO = new Set([
+"USA","CAN","GBR","FRA","DEU","BEL","NLD","LUX","ITA","ESP","PRT","GRC",
+"TUR","NOR","DNK","ISL","FIN","SWE","POL","CZE","SVK","HUN","ROU","BGR",
+"EST","LVA","LTU","SVN","HRV","MNE","MKD","ALB"
+]);
+
+// EU ISO
+const EU = new Set([
+"FRA","DEU","ITA","ESP","NLD","BEL","LUX","POL","AUT","GRC","PRT","FIN",
+"IRL","SWE","DNK","CZE","SVK","HUN","ROU","BGR","HRV","SVN","EST","LVA",
+"LTU","CYP","MLT"
+]);
+
+// Color logic
+function getColor(code) {
+    const euChecked = document.getElementById("euCheck").checked;
+    const natoChecked = document.getElementById("natoCheck").checked;
+
+    const inEU = EU.has(code);
+    const inNATO = NATO.has(code);
+    const isGreenland = (code === "GRL");
+
+    if (euChecked && natoChecked) {
+        if (inEU && inNATO) return "#facc15";
+        if (inEU) return "#3b82f6";
+        if (inNATO || isGreenland) return "#ef4444";
+    }
+
+    if (euChecked && !natoChecked) {
+        if (inEU) return "#3b82f6";
+        return "#9ca3af";
+    }
+
+    if (!euChecked && natoChecked) {
+        if (inNATO || isGreenland) return "#ef4444";
+        return "#9ca3af";
+    }
+
+    return "#9ca3af";
+}
+
+// France mainland fix
+function getFranceMainland(feature) {
+    if (feature.id === "FRA" && feature.geometry.type === "MultiPolygon") {
+        let largest = feature.geometry.coordinates.reduce((a, b) =>
+            d3.geoArea({type: "Polygon", coordinates: a}) >
+            d3.geoArea({type: "Polygon", coordinates: b}) ? a : b
+        );
+        return { type: "Polygon", coordinates: largest };
+    }
+    return feature.geometry;
+}
+
+// Map setup
+const width = window.innerWidth;
+const height = window.innerHeight;
+
+const svg = d3.select("body")
+.append("svg")
+.attr("viewBox", `0 0 ${width} ${height}`);
+
+const g = svg.append("g");
+
+const projection = d3.geoNaturalEarth1()
+.scale(width / 6.5)
+.translate([width / 2, height / 2]);
+
+const path = d3.geoPath().projection(projection);
+
+const tooltip = d3.select("#tooltip");
+
+// Zoom
+const zoom = d3.zoom()
+.scaleExtent([1, 8])
+.on("zoom", (event) => g.attr("transform", event.transform));
+
+svg.call(zoom);
+
+// Load map
+d3.json("https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson")
+.then(data => {
+
+    const countries = g.selectAll("path")
+    .data(data.features)
+    .enter()
+    .append("path")
+    .attr("class", "country")
+
+    .attr("d", d => path(getFranceMainland(d)))
+    .attr("fill", d => getColor(d.id))
+
+    .on("mouseover", (event, d) => {
+        tooltip.style("opacity", 1).html(d.properties.name);
+    })
+
+    .on("mousemove", event => {
+        tooltip.style("left", (event.pageX + 10) + "px")
+               .style("top", (event.pageY - 20) + "px");
+    })
+
+    .on("mouseout", () => tooltip.style("opacity", 0));
+
+    function updateMap() {
+        countries.attr("fill", d => getColor(d.id));
+    }
+
+    document.getElementById("euCheck").addEventListener("change", updateMap);
+    document.getElementById("natoCheck").addEventListener("change", updateMap);
+
+});
+</script>
+
+</body>
+</html>
